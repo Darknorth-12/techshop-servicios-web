@@ -70,6 +70,17 @@ Inicio de sesión con contraseña incorrecta, respuesta (401):
 En Postman: método `POST`, URL `http://localhost:3000/api/login`, pestaña
 Body → raw → JSON, y pegar el cuerpo de ejemplo.
 
+## Pruebas con Postman
+
+En la carpeta `postman/` hay una colección lista para importar con 15
+peticiones y sus pruebas automáticas:
+
+1. Iniciar el servicio con `npm start`.
+2. En Postman: **Import** y elegir `TechShop_API.postman_collection.json` y
+   `TechShop_Local.postman_environment.json`.
+3. Seleccionar el entorno **TechShop - Local** (arriba a la derecha).
+4. Ejecutar la colección completa con **Run collection** (en orden).
+
 ## Pruebas y calidad de código
 
 ```bash
