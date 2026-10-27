@@ -1,5 +1,6 @@
 /**
- * Servicio de autenticación: reglas de negocio de registro e inicio de sesión.
+ * Servicio de autenticación: reglas de negocio de registro, inicio de sesión
+ * y consulta del perfil.
  *
  * Las contraseñas NUNCA se guardan en texto plano: se almacena únicamente el
  * hash generado con bcrypt (algoritmo lento y con "sal" aleatoria, diseñado
@@ -10,8 +11,15 @@ const { ErrorHttp } = require('../utils/errores');
 
 const RONDAS_POR_DEFECTO = 10;
 
+/** Devuelve solo los datos públicos del usuario: nunca el hash. */
+const datosPublicos = (usuario) => ({
+  id: usuario.id,
+  usuario: usuario.usuario,
+  rol: usuario.rol,
+});
+
 /**
- * @param {object} repositorio Repositorio de usuarios (buscarPorUsuario, guardar).
+ * @param {object} repositorio Repositorio de usuarios.
  * @param {number} [rondas] Costo de bcrypt; las pruebas usan un valor bajo para ir rápido.
  */
 const crearServicioAuth = (repositorio, rondas = RONDAS_POR_DEFECTO) => {
@@ -20,35 +28,42 @@ const crearServicioAuth = (repositorio, rondas = RONDAS_POR_DEFECTO) => {
   const hashRelleno = bcrypt.hashSync('relleno-no-valido', rondas);
 
   /**
-   * Registra un usuario nuevo.
+   * Registra un usuario nuevo. El rol por defecto es 'cliente'.
    * @throws {ErrorHttp} 409 si el nombre de usuario ya existe.
-   * @returns {Promise<{id: number, usuario: string}>} Datos públicos del usuario creado.
    */
-  const registrar = async (usuario, contrasena) => {
+  const registrar = async (usuario, contrasena, rol = 'cliente') => {
     if (repositorio.buscarPorUsuario(usuario)) {
       throw new ErrorHttp(409, 'El usuario ya está registrado');
     }
 
     const contrasenaHash = await bcrypt.hash(contrasena, rondas);
-    const creado = repositorio.guardar({ usuario, contrasenaHash });
-
-    // Se devuelven solo los datos públicos: nunca el hash
-    return { id: creado.id, usuario: creado.usuario };
+    return datosPublicos(repositorio.guardar({ usuario, contrasenaHash, rol }));
   };
 
   /**
    * Verifica las credenciales.
-   * @returns {Promise<boolean>} true si el usuario existe y la contraseña coincide.
+   * @returns {Promise<object|null>} Datos públicos del usuario si son correctas; si no, null.
    */
   const autenticar = async (usuario, contrasena) => {
     const encontrado = repositorio.buscarPorUsuario(usuario);
     const hash = encontrado ? encontrado.contrasenaHash : hashRelleno;
     const coincide = await bcrypt.compare(contrasena, hash);
 
-    return Boolean(encontrado) && coincide;
+    return encontrado && coincide ? datosPublicos(encontrado) : null;
   };
 
-  return { registrar, autenticar };
+  /**
+   * Devuelve el perfil de un usuario ya autenticado.
+   * @throws {ErrorHttp} 404 si el usuario ya no existe.
+   */
+  const obtenerPerfil = (id) => {
+    const encontrado = repositorio.buscarPorId(id);
+    if (!encontrado) throw new ErrorHttp(404, 'Usuario no encontrado');
+
+    return { ...datosPublicos(encontrado), fechaRegistro: encontrado.fechaRegistro };
+  };
+
+  return { registrar, autenticar, obtenerPerfil };
 };
 
 module.exports = { crearServicioAuth };
