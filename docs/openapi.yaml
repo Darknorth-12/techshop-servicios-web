@@ -1,0 +1,554 @@
+openapi: 3.0.3
+info:
+  title: TechShop - Servicios web
+  version: 1.0.0
+  description: |
+    API REST del proyecto formativo TechShop (venta de productos electrónicos).
+    Evidencia GA7-220501096-AA5-EV03.
+
+    **Formato:** todas las peticiones y respuestas usan JSON. Toda respuesta
+    incluye `exito` (true/false) y `mensaje`.
+
+    **Autenticación:** los servicios protegidos requieren el encabezado
+    `Authorization: Bearer <token>`. El token se obtiene en `POST /api/login`
+    y dura 2 horas.
+
+    **Roles:** `cliente` (por defecto al registrarse) y `admin` (se crea desde
+    el servidor con `npm run crear-admin`).
+servers:
+  - url: http://localhost:3000
+    description: Entorno local
+tags:
+  - name: Autenticación
+    description: Registro, inicio de sesión y perfil
+  - name: Productos
+    description: Catálogo (consultar es público; modificar es solo admin)
+  - name: Pedidos
+    description: Compras de los clientes
+  - name: Utilidades
+    description: Estado del servicio
+
+paths:
+  /api/salud:
+    get:
+      tags: [Utilidades]
+      summary: Comprobar que el servicio está activo
+      responses:
+        '200':
+          description: Servicio activo
+          content:
+            application/json:
+              schema:
+                $ref: '#/components/schemas/Mensaje'
+              example: { exito: true, mensaje: Servicio activo }
+
+  /api/registro:
+    post:
+      tags: [Autenticación]
+      summary: Registrar un usuario
+      description: |
+        Crea un usuario con rol `cliente`. La contraseña se guarda cifrada (bcrypt).
+        - Usuario: 3 a 20 caracteres; solo letras, números, punto y guion bajo.
+        - Contraseña: 8 a 64 caracteres; al menos una letra y un número.
+      requestBody:
+        required: true
+        content:
+          application/json:
+            schema:
+              $ref: '#/components/schemas/Credenciales'
+            example: { usuario: elkin.g, contrasena: Clave1234 }
+      responses:
+        '201':
+          description: Usuario registrado
+          content:
+            application/json:
+              schema:
+                type: object
+                properties:
+                  exito: { type: boolean, example: true }
+                  mensaje: { type: string, example: Usuario registrado correctamente }
+                  usuario: { $ref: '#/components/schemas/Usuario' }
+        '400': { $ref: '#/components/responses/DatosInvalidos' }
+        '409':
+          description: El usuario ya existe
+          content:
+            application/json:
+              schema: { $ref: '#/components/schemas/Mensaje' }
+              example: { exito: false, mensaje: El usuario ya está registrado }
+
+  /api/login:
+    post:
+      tags: [Autenticación]
+      summary: Iniciar sesión
+      description: |
+        Si las credenciales son correctas responde "Autenticación satisfactoria"
+        y entrega un token. Si no, responde "Error en la autenticación" (el mismo
+        mensaje si el usuario no existe o la contraseña es incorrecta).
+      requestBody:
+        required: true
+        content:
+          application/json:
+            schema:
+              $ref: '#/components/schemas/Credenciales'
+            example: { usuario: elkin.g, contrasena: Clave1234 }
+      responses:
+        '200':
+          description: Autenticación satisfactoria
+          content:
+            application/json:
+              schema:
+                type: object
+                properties:
+                  exito: { type: boolean, example: true }
+                  mensaje: { type: string, example: Autenticación satisfactoria }
+                  token: { type: string, description: Token JWT para los servicios protegidos }
+                  usuario: { $ref: '#/components/schemas/Usuario' }
+        '400':
+          description: Falta el usuario o la contraseña
+          content:
+            application/json:
+              schema: { $ref: '#/components/schemas/Mensaje' }
+              example: { exito: false, mensaje: Debe enviar usuario y contraseña }
+        '401':
+          description: Error en la autenticación
+          content:
+            application/json:
+              schema: { $ref: '#/components/schemas/Mensaje' }
+              example: { exito: false, mensaje: Error en la autenticación }
+
+  /api/perfil:
+    get:
+      tags: [Autenticación]
+      summary: Consultar el perfil del usuario autenticado
+      security:
+        - bearerAuth: []
+      responses:
+        '200':
+          description: Datos del usuario
+          content:
+            application/json:
+              schema:
+                type: object
+                properties:
+                  exito: { type: boolean, example: true }
+                  usuario:
+                    allOf:
+                      - $ref: '#/components/schemas/Usuario'
+                      - type: object
+                        properties:
+                          fechaRegistro: { type: string, format: date-time }
+        '401': { $ref: '#/components/responses/NoAutenticado' }
+
+  /api/productos:
+    get:
+      tags: [Productos]
+      summary: Listar productos (público)
+      description: Permite buscar por nombre y paginar. El límite máximo por página es 50.
+      parameters:
+        - name: buscar
+          in: query
+          description: Texto a buscar dentro del nombre (sin distinguir mayúsculas)
+          schema: { type: string }
+        - name: pagina
+          in: query
+          schema: { type: integer, minimum: 1, default: 1 }
+        - name: limite
+          in: query
+          schema: { type: integer, minimum: 1, maximum: 50, default: 10 }
+      responses:
+        '200':
+          description: Lista de productos
+          content:
+            application/json:
+              schema:
+                type: object
+                properties:
+                  exito: { type: boolean, example: true }
+                  total: { type: integer, description: Total de coincidencias, example: 3 }
+                  pagina: { type: integer, example: 1 }
+                  limite: { type: integer, example: 10 }
+                  productos:
+                    type: array
+                    items: { $ref: '#/components/schemas/Producto' }
+    post:
+      tags: [Productos]
+      summary: Crear un producto (solo admin)
+      description: |
+        Reglas: nombre de 3 a 50 caracteres (letras, números, espacios, punto y
+        guion); descripción opcional de hasta 150 caracteres; precio mayor a 0 con
+        máximo 2 decimales (hasta 99999999); stock entero entre 0 y 100000.
+        El precio y el stock se envían como números, no como texto.
+      security:
+        - bearerAuth: []
+      requestBody:
+        required: true
+        content:
+          application/json:
+            schema: { $ref: '#/components/schemas/ProductoEntrada' }
+            example:
+              nombre: Mouse inalámbrico
+              descripcion: Mouse óptico USB 2.4GHz
+              precio: 35000
+              stock: 20
+      responses:
+        '201':
+          description: Producto creado
+          content:
+            application/json:
+              schema:
+                type: object
+                properties:
+                  exito: { type: boolean, example: true }
+                  mensaje: { type: string, example: Producto creado correctamente }
+                  producto: { $ref: '#/components/schemas/Producto' }
+        '400': { $ref: '#/components/responses/DatosInvalidos' }
+        '401': { $ref: '#/components/responses/NoAutenticado' }
+        '403': { $ref: '#/components/responses/SinPermisos' }
+
+  /api/productos/{id}:
+    parameters:
+      - $ref: '#/components/parameters/IdRuta'
+    get:
+      tags: [Productos]
+      summary: Consultar un producto (público)
+      responses:
+        '200':
+          description: El producto
+          content:
+            application/json:
+              schema:
+                type: object
+                properties:
+                  exito: { type: boolean, example: true }
+                  producto: { $ref: '#/components/schemas/Producto' }
+        '400': { $ref: '#/components/responses/IdInvalido' }
+        '404': { $ref: '#/components/responses/NoEncontrado' }
+    put:
+      tags: [Productos]
+      summary: Reemplazar los datos de un producto (solo admin)
+      security:
+        - bearerAuth: []
+      requestBody:
+        required: true
+        content:
+          application/json:
+            schema: { $ref: '#/components/schemas/ProductoEntrada' }
+      responses:
+        '200':
+          description: Producto actualizado
+          content:
+            application/json:
+              schema:
+                type: object
+                properties:
+                  exito: { type: boolean, example: true }
+                  mensaje: { type: string, example: Producto actualizado correctamente }
+                  producto: { $ref: '#/components/schemas/Producto' }
+        '400': { $ref: '#/components/responses/DatosInvalidos' }
+        '401': { $ref: '#/components/responses/NoAutenticado' }
+        '403': { $ref: '#/components/responses/SinPermisos' }
+        '404': { $ref: '#/components/responses/NoEncontrado' }
+    delete:
+      tags: [Productos]
+      summary: Eliminar un producto (solo admin)
+      security:
+        - bearerAuth: []
+      responses:
+        '200':
+          description: Producto eliminado
+          content:
+            application/json:
+              schema: { $ref: '#/components/schemas/Mensaje' }
+              example: { exito: true, mensaje: Producto eliminado correctamente }
+        '400': { $ref: '#/components/responses/IdInvalido' }
+        '401': { $ref: '#/components/responses/NoAutenticado' }
+        '403': { $ref: '#/components/responses/SinPermisos' }
+        '404': { $ref: '#/components/responses/NoEncontrado' }
+
+  /api/pedidos:
+    post:
+      tags: [Pedidos]
+      summary: Crear un pedido
+      description: |
+        Recibe los productos y cantidades. El servidor toma los precios del
+        catálogo (nunca del cliente), calcula el total y descuenta el stock.
+        Cada producto puede aparecer una sola vez; cantidad entre 1 y 100;
+        máximo 50 productos distintos por pedido.
+      security:
+        - bearerAuth: []
+      requestBody:
+        required: true
+        content:
+          application/json:
+            schema:
+              type: object
+              required: [items]
+              properties:
+                items:
+                  type: array
+                  items:
+                    type: object
+                    required: [productoId, cantidad]
+                    properties:
+                      productoId: { type: integer, example: 1 }
+                      cantidad: { type: integer, example: 2 }
+            example:
+              items:
+                - { productoId: 1, cantidad: 2 }
+                - { productoId: 2, cantidad: 1 }
+      responses:
+        '201':
+          description: Pedido creado en estado pendiente
+          content:
+            application/json:
+              schema:
+                type: object
+                properties:
+                  exito: { type: boolean, example: true }
+                  mensaje: { type: string, example: Pedido creado correctamente }
+                  pedido: { $ref: '#/components/schemas/Pedido' }
+        '400': { $ref: '#/components/responses/DatosInvalidos' }
+        '401': { $ref: '#/components/responses/NoAutenticado' }
+        '409':
+          description: No hay stock suficiente
+          content:
+            application/json:
+              schema: { $ref: '#/components/schemas/Mensaje' }
+              example:
+                exito: false
+                mensaje: No hay stock suficiente para completar el pedido
+                errores: ['Stock insuficiente de "Mouse inalámbrico": disponible 1']
+    get:
+      tags: [Pedidos]
+      summary: Listar pedidos
+      description: Un cliente ve sus propios pedidos; el admin ve todos.
+      security:
+        - bearerAuth: []
+      parameters:
+        - name: estado
+          in: query
+          description: Filtrar por estado
+          schema:
+            type: string
+            enum: [pendiente, enviado, entregado, cancelado]
+      responses:
+        '200':
+          description: Lista de pedidos
+          content:
+            application/json:
+              schema:
+                type: object
+                properties:
+                  exito: { type: boolean, example: true }
+                  total: { type: integer, example: 1 }
+                  pedidos:
+                    type: array
+                    items: { $ref: '#/components/schemas/Pedido' }
+        '400': { $ref: '#/components/responses/DatosInvalidos' }
+        '401': { $ref: '#/components/responses/NoAutenticado' }
+
+  /api/pedidos/{id}:
+    parameters:
+      - $ref: '#/components/parameters/IdRuta'
+    get:
+      tags: [Pedidos]
+      summary: Consultar un pedido
+      description: Un cliente solo puede consultar sus pedidos; si el pedido es de otra persona se responde 404.
+      security:
+        - bearerAuth: []
+      responses:
+        '200':
+          description: El pedido
+          content:
+            application/json:
+              schema:
+                type: object
+                properties:
+                  exito: { type: boolean, example: true }
+                  pedido: { $ref: '#/components/schemas/Pedido' }
+        '400': { $ref: '#/components/responses/IdInvalido' }
+        '401': { $ref: '#/components/responses/NoAutenticado' }
+        '404': { $ref: '#/components/responses/NoEncontrado' }
+
+  /api/pedidos/{id}/cancelar:
+    patch:
+      tags: [Pedidos]
+      summary: Cancelar un pedido pendiente
+      description: Devuelve el stock de los productos. El dueño del pedido o el admin pueden cancelar.
+      parameters:
+        - $ref: '#/components/parameters/IdRuta'
+      security:
+        - bearerAuth: []
+      responses:
+        '200':
+          description: Pedido cancelado
+          content:
+            application/json:
+              schema:
+                type: object
+                properties:
+                  exito: { type: boolean, example: true }
+                  mensaje: { type: string, example: Pedido cancelado correctamente }
+                  pedido: { $ref: '#/components/schemas/Pedido' }
+        '400': { $ref: '#/components/responses/IdInvalido' }
+        '401': { $ref: '#/components/responses/NoAutenticado' }
+        '404': { $ref: '#/components/responses/NoEncontrado' }
+        '409':
+          description: El pedido ya no está pendiente
+          content:
+            application/json:
+              schema: { $ref: '#/components/schemas/Mensaje' }
+
+  /api/pedidos/{id}/estado:
+    patch:
+      tags: [Pedidos]
+      summary: Cambiar el estado de un pedido (solo admin)
+      description: |
+        Transiciones permitidas: pendiente a enviado, pendiente a cancelado y
+        enviado a entregado. Cancelar devuelve el stock.
+      parameters:
+        - $ref: '#/components/parameters/IdRuta'
+      security:
+        - bearerAuth: []
+      requestBody:
+        required: true
+        content:
+          application/json:
+            schema:
+              type: object
+              required: [estado]
+              properties:
+                estado:
+                  type: string
+                  enum: [pendiente, enviado, entregado, cancelado]
+            example: { estado: enviado }
+      responses:
+        '200':
+          description: Estado actualizado
+          content:
+            application/json:
+              schema:
+                type: object
+                properties:
+                  exito: { type: boolean, example: true }
+                  mensaje: { type: string, example: Estado del pedido actualizado }
+                  pedido: { $ref: '#/components/schemas/Pedido' }
+        '400': { $ref: '#/components/responses/DatosInvalidos' }
+        '401': { $ref: '#/components/responses/NoAutenticado' }
+        '403': { $ref: '#/components/responses/SinPermisos' }
+        '404': { $ref: '#/components/responses/NoEncontrado' }
+        '409':
+          description: Transición de estado no permitida
+          content:
+            application/json:
+              schema: { $ref: '#/components/schemas/Mensaje' }
+              example: { exito: false, mensaje: No se puede pasar de "entregado" a "enviado" }
+
+components:
+  securitySchemes:
+    bearerAuth:
+      type: http
+      scheme: bearer
+      bearerFormat: JWT
+      description: Token obtenido en POST /api/login
+
+  parameters:
+    IdRuta:
+      name: id
+      in: path
+      required: true
+      description: Identificador (entero positivo)
+      schema: { type: integer, minimum: 1 }
+
+  responses:
+    DatosInvalidos:
+      description: Datos inválidos o JSON mal formado
+      content:
+        application/json:
+          schema: { $ref: '#/components/schemas/Mensaje' }
+          example:
+            exito: false
+            mensaje: Datos de producto inválidos
+            errores: [El precio debe ser mayor a cero]
+    IdInvalido:
+      description: El id de la URL no es un entero positivo
+      content:
+        application/json:
+          schema: { $ref: '#/components/schemas/Mensaje' }
+          example: { exito: false, mensaje: El id debe ser un entero positivo }
+    NoAutenticado:
+      description: Falta el token o es inválido o venció
+      content:
+        application/json:
+          schema: { $ref: '#/components/schemas/Mensaje' }
+          example: { exito: false, mensaje: 'No autenticado: se requiere un token válido' }
+    SinPermisos:
+      description: El rol del usuario no permite esta operación
+      content:
+        application/json:
+          schema: { $ref: '#/components/schemas/Mensaje' }
+          example: { exito: false, mensaje: No tiene permisos para realizar esta operación }
+    NoEncontrado:
+      description: El recurso no existe
+      content:
+        application/json:
+          schema: { $ref: '#/components/schemas/Mensaje' }
+          example: { exito: false, mensaje: Producto no encontrado }
+
+  schemas:
+    Mensaje:
+      type: object
+      properties:
+        exito: { type: boolean }
+        mensaje: { type: string }
+        errores:
+          type: array
+          items: { type: string }
+          description: Detalle de los problemas encontrados (si aplica)
+    Credenciales:
+      type: object
+      required: [usuario, contrasena]
+      properties:
+        usuario: { type: string, minLength: 3, maxLength: 20 }
+        contrasena: { type: string, minLength: 8, maxLength: 64 }
+    Usuario:
+      type: object
+      properties:
+        id: { type: integer, example: 1 }
+        usuario: { type: string, example: elkin.g }
+        rol: { type: string, enum: [cliente, admin], example: cliente }
+    ProductoEntrada:
+      type: object
+      required: [nombre, precio, stock]
+      properties:
+        nombre: { type: string, minLength: 3, maxLength: 50 }
+        descripcion: { type: string, maxLength: 150 }
+        precio: { type: number, minimum: 0.01, maximum: 99999999 }
+        stock: { type: integer, minimum: 0, maximum: 100000 }
+    Producto:
+      allOf:
+        - type: object
+          properties:
+            id: { type: integer, example: 1 }
+        - $ref: '#/components/schemas/ProductoEntrada'
+    LineaPedido:
+      type: object
+      properties:
+        productoId: { type: integer, example: 1 }
+        nombre: { type: string, example: Mouse inalámbrico }
+        precioUnitario: { type: number, example: 35000 }
+        cantidad: { type: integer, example: 2 }
+        subtotal: { type: number, example: 70000 }
+    Pedido:
+      type: object
+      properties:
+        id: { type: integer, example: 1 }
+        usuarioId: { type: integer, example: 2 }
+        items:
+          type: array
+          items: { $ref: '#/components/schemas/LineaPedido' }
+        total: { type: number, example: 190000 }
+        estado:
+          type: string
+          enum: [pendiente, enviado, entregado, cancelado]
+        fechaCreacion: { type: string, format: date-time }
