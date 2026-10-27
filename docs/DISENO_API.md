@@ -1,134 +1,111 @@
-# Diseño del servicio web de registro e inicio de sesión
+# Diseño de los servicios web – TechShop
 
-**Evidencia:** GA7-220501096-AA5-EV01 — Diseño y desarrollo de servicios web (caso)
-**Proyecto:** TechShop
+**Evidencia:** GA7-220501096-AA5-EV03 — Diseño y desarrollo de servicios web (proyecto)
 **Tecnología:** Node.js + Express (API REST con respuestas JSON)
 
-## 1. Requerimiento
+## 1. Análisis: ¿qué servicios necesita TechShop?
 
-Se requiere un servicio web para registro e inicio de sesión. El servicio
-recibe un usuario y una contraseña:
+TechShop es una aplicación de venta de productos electrónicos. Los módulos
+del proyecto (Java/JDBC, Servlets/JSP, Android y front-end web) gestionan el
+catálogo; para que todos consuman los mismos datos se necesita un backend con
+tres grupos de servicios:
 
-- Si la autenticación es correcta, responde un mensaje de **autenticación
-  satisfactoria**.
-- En caso contrario, responde **error en la autenticación**.
+| Grupo | Necesidad del negocio | Usuarios |
+|---|---|---|
+| Autenticación | Que cada persona se registre, inicie sesión y se identifique | Todos |
+| Productos | Mantener el catálogo (admin) y consultarlo (todos) | Admin y público |
+| Pedidos | Que un cliente compre y que el admin gestione la entrega | Cliente y admin |
 
 ## 2. Decisiones de diseño
 
 | Decisión | Justificación |
 |---|---|
-| API REST con JSON | Es el estándar para que cualquier cliente (la app web, la app Android o Postman) consuma el servicio. |
-| Dos endpoints `POST` | Registro e inicio de sesión envían datos sensibles; no deben ir en la URL como en un `GET`. |
-| Códigos HTTP significativos | 201, 200, 400, 401, 409, 404 y 500 permiten al cliente saber qué pasó sin leer el mensaje. |
-| Contraseñas con bcrypt | Nunca se guarda la contraseña: solo su hash con sal. Si el archivo de datos se filtra, no se exponen las contraseñas. |
-| Mismo error para usuario inexistente y contraseña errónea | Evita que un atacante descubra qué usuarios existen. |
-| Usuario sin distinguir mayúsculas | `Elkin.G` y `elkin.g` son el mismo usuario; evita cuentas confusas. |
-| Arquitectura por capas | Misma organización de los módulos Java del proyecto (controlador → servicio → repositorio). |
-| Persistencia en archivo JSON | Suficiente para la evidencia sin instalar una base de datos; solo habría que reemplazar la capa de repositorio. |
+| API REST con JSON | Cualquier cliente (web, Android, Postman) puede consumirla |
+| Recursos en plural y verbos HTTP | `GET/POST /api/productos`, `PUT/DELETE /api/productos/{id}`: la URL nombra el recurso y el método indica la acción |
+| Tokens JWT con vigencia de 2 horas | El servidor no guarda sesiones; cada petición lleva su credencial firmada |
+| Dos roles (cliente y admin) | El catálogo solo lo modifica el admin; el cliente solo compra |
+| El admin no se crea por la API | Evita que alguien se auto-asigne el rol; se crea desde el servidor (`npm run crear-admin`) |
+| Contraseñas con bcrypt | Nunca se guarda la contraseña, solo su hash con sal |
+| Mismo error para usuario inexistente y contraseña errónea | No revela qué usuarios existen |
+| El servidor calcula precios y totales | Nunca confía en precios enviados por el cliente |
+| El pedido guarda copia de nombre y precio | Un cambio posterior en el catálogo no altera pedidos ya hechos |
+| Pedido de otra persona → 404 (no 403) | No revela que el pedido existe |
+| Validar todo antes de modificar | Si falta stock en un producto, no se descuenta ninguno |
+| Arquitectura por capas | Rutas → controlador → servicio → repositorio, igual que los módulos Java del proyecto |
+| Persistencia en archivos JSON | Suficiente para la evidencia; solo habría que reemplazar la capa de repositorio por MySQL/MongoDB |
 
 ## 3. Arquitectura
 
 ```
-Cliente (Postman / app web / app Android)
-        │  HTTP + JSON
+Cliente (app web / app Android / Postman)
+        │  HTTP + JSON  (+ Authorization: Bearer <token>)
         ▼
-  app.js  ── rutas y manejo central de errores
+  app.js ─ configuración, documentación (/api/docs) y manejo central de errores
         │
-        ▼
-  controllers/auth.controller.js  ── lee la petición, arma la respuesta
-        │
-        ▼
-  services/auth.service.js        ── reglas de negocio + bcrypt
-        │
-        ▼
-  repositories/usuario.repository.js ── lee y escribe data/usuarios.json
+        ├─ routes/            ─ qué URL y método llegan a qué controlador
+        │    └─ middlewares/  ─ autenticar (token) y exigirRol (permisos)
+        ├─ controllers/       ─ leen la petición, validan y arman la respuesta
+        ├─ services/          ─ reglas de negocio (stock, estados, bcrypt)
+        └─ repositories/      ─ leen y escriben los archivos JSON de data/
 ```
-
-Archivos de apoyo: `utils/validaciones.js` (reglas de los datos) y
-`utils/errores.js` (error con código HTTP).
 
 ## 4. Modelo de datos
 
-Entidad **Usuario** (almacenada en `data/usuarios.json`):
-
-| Campo | Tipo | Descripción |
-|---|---|---|
-| `id` | número | Identificador consecutivo |
-| `usuario` | texto | Nombre de usuario (3 a 20 caracteres) |
-| `contrasenaHash` | texto | Hash bcrypt de la contraseña |
-| `fechaRegistro` | texto (ISO 8601) | Fecha y hora del registro |
-
-## 5. Contrato de la API
-
-Todas las respuestas son JSON y siguen el formato
-`{ "exito": true|false, "mensaje": "...", ... }`.
-
-### 5.1 POST /api/registro
-
-Cuerpo de la petición:
-
-```json
-{ "usuario": "elkin.g", "contrasena": "Clave1234" }
+```
+┌────────────────┐        ┌─────────────────┐        ┌────────────────────┐
+│ Usuario        │ 1    * │ Pedido          │ 1    * │ Línea de pedido    │
+├────────────────┤────────├─────────────────┤────────├────────────────────┤
+│ id             │        │ id              │        │ productoId         │
+│ usuario        │        │ usuarioId       │        │ nombre (copia)     │
+│ contrasenaHash │        │ total           │        │ precioUnitario     │
+│ rol            │        │ estado          │        │ cantidad           │
+│ fechaRegistro  │        │ fechaCreacion   │        │ subtotal           │
+└────────────────┘        └─────────────────┘        └─────────┬──────────┘
+                                                               │ * referencia
+                                                      ┌────────▼───────────┐
+                                                      │ Producto           │
+                                                      ├────────────────────┤
+                                                      │ id, nombre,        │
+                                                      │ descripcion,       │
+                                                      │ precio, stock      │
+                                                      └────────────────────┘
 ```
 
-| Estado | Cuándo | Respuesta |
-|---|---|---|
-| 201 Created | Registro exitoso | `{"exito":true,"mensaje":"Usuario registrado correctamente","usuario":{"id":1,"usuario":"elkin.g"}}` |
-| 400 Bad Request | Datos inválidos o JSON mal formado | `{"exito":false,"mensaje":"Datos de registro inválidos","errores":[...]}` |
-| 409 Conflict | El usuario ya existe | `{"exito":false,"mensaje":"El usuario ya está registrado"}` |
+Archivos: `data/usuarios.json`, `data/productos.json`, `data/pedidos.json`
+(las líneas de pedido viven dentro de cada pedido).
 
-Reglas de validación del registro:
-
-| Campo | Regla |
-|---|---|
-| `usuario` | Obligatorio, texto, 3 a 20 caracteres, solo letras, números, punto y guion bajo |
-| `contrasena` | Obligatoria, texto, 8 a 64 caracteres, con al menos una letra y un número |
-
-### 5.2 POST /api/login
-
-Cuerpo de la petición:
-
-```json
-{ "usuario": "elkin.g", "contrasena": "Clave1234" }
-```
-
-| Estado | Cuándo | Respuesta |
-|---|---|---|
-| 200 OK | Credenciales correctas | `{"exito":true,"mensaje":"Autenticación satisfactoria"}` |
-| 401 Unauthorized | Usuario inexistente o contraseña incorrecta | `{"exito":false,"mensaje":"Error en la autenticación"}` |
-| 400 Bad Request | Falta el usuario o la contraseña | `{"exito":false,"mensaje":"Debe enviar usuario y contraseña"}` |
-
-### 5.3 GET /api/salud
-
-Comprueba que el servicio está activo: `200 {"exito":true,"mensaje":"Servicio activo"}`.
-
-### 5.4 Errores generales
-
-| Estado | Cuándo |
-|---|---|
-| 404 | Ruta que no existe |
-| 500 | Error inesperado del servidor (el detalle solo queda en el registro del servidor, no se envía al cliente) |
-
-## 6. Flujo del inicio de sesión
+## 5. Flujo de un pedido
 
 ```
-Recibe usuario y contraseña
+POST /api/pedidos (cliente con token)
    │
-   ├─ ¿Faltan datos? ──────────────► 400 "Debe enviar usuario y contraseña"
+   ├─ ¿Datos válidos? ───────────── no ─► 400
+   ├─ ¿Existen todos los productos? ─ no ─► 400
+   ├─ ¿Hay stock de todos? ───────── no ─► 409 (no se descuenta nada)
    │
    ▼
-Busca el usuario (sin distinguir mayúsculas)
-   │
-   ▼
-Compara la contraseña con el hash (bcrypt)
-   │
-   ├─ Coincide ────────────────────► 200 "Autenticación satisfactoria"
-   └─ No existe o no coincide ─────► 401 "Error en la autenticación"
+Descuenta stock → guarda el pedido (estado: pendiente, precios del catálogo) → 201
+
+Después:
+   Cliente ─ cancela (si está pendiente) ─► stock devuelto, estado: cancelado
+   Admin ─── pendiente → enviado → entregado   (o cancelado desde pendiente)
 ```
+
+## 6. Seguridad aplicada
+
+- Contraseñas con hash bcrypt; las respuestas nunca incluyen el hash.
+- Tokens JWT firmados; se rechazan los inventados, de otra clave, vencidos o mal formados.
+- Control de acceso por rol y por dueño del recurso.
+- El rol de un usuario nuevo no se puede elegir desde la API (evita escalar privilegios).
+- Validación estricta de entradas (tipos, longitudes, rangos, caracteres) y de ids en la URL.
+- Límite de 10 KB en el cuerpo de las peticiones.
+- Errores inesperados sin detalles internos para el cliente.
+- En producción la clave del token es obligatoria (`JWT_SECRET`).
 
 ## 7. Alcance y mejoras futuras
 
-Esta evidencia cubre el caso solicitado: registro y verificación de
-credenciales. Para un sistema en producción se recomienda agregar: emisión de
-un token (JWT) al iniciar sesión, límite de intentos por IP (rate limiting),
-HTTPS, y una base de datos real en lugar del archivo JSON.
+Cubre los servicios necesarios para el flujo principal de TechShop. Para un
+sistema en producción se recomienda: límite de intentos de login (rate
+limiting), HTTPS, renovación de tokens (refresh token), base de datos real con
+transacciones (hoy el descuento de stock y la creación del pedido no son
+atómicos entre archivos), pagos y categorías de productos.

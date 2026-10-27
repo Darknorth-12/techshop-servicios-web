@@ -1,115 +1,112 @@
-# TechShop – Servicio web de registro e inicio de sesión (Node.js + Express)
+# TechShop – Servicios web (Node.js + Express)
 
-**Evidencia:** GA7-220501096-AA5-EV01 — Diseño y desarrollo de servicios web (caso)
-**Tecnologías:** Node.js, Express, bcryptjs. Persistencia en archivo JSON.
+**Evidencia:** GA7-220501096-AA5-EV03 — Diseño y desarrollo de servicios web (proyecto)
+**Tecnologías:** Node.js, Express, JWT, bcryptjs, OpenAPI/Swagger UI. Persistencia en archivos JSON.
 
 ## Descripción
 
-API REST que permite **registrar** un usuario e **iniciar sesión**. Recibe un
-usuario y una contraseña; si la autenticación es correcta responde
-*«Autenticación satisfactoria»* y, si no, *«Error en la autenticación»*.
+API REST del proyecto formativo TechShop (venta de productos electrónicos) con
+los servicios necesarios para el flujo principal del software:
 
-El diseño completo (decisiones, arquitectura, modelo de datos, contrato de la
-API y flujo) está en [`docs/DISENO_API.md`](docs/DISENO_API.md).
+| Grupo | Servicios |
+|---|---|
+| Autenticación | Registro, inicio de sesión (con token JWT) y perfil |
+| Productos | Listar con búsqueda y paginación, consultar, crear, modificar y eliminar |
+| Pedidos | Crear (con control de stock), listar, consultar, cancelar y cambiar estado |
+
+Incluye roles (`cliente` y `admin`), validación de datos y la documentación de
+cada servicio. Parte del servicio de registro e inicio de sesión de AA5-EV01.
+
+## Documentación
+
+- [`docs/DOCUMENTACION_API.md`](docs/DOCUMENTACION_API.md): cada servicio con su método, URL, permisos, cuerpo, reglas y respuestas.
+- [`docs/DISENO_API.md`](docs/DISENO_API.md): análisis, decisiones de diseño, arquitectura, modelo de datos, flujos y seguridad.
+- [`docs/openapi.yaml`](docs/openapi.yaml): especificación OpenAPI 3.
+- **Documentación interactiva:** con el servicio iniciado, abrir http://localhost:3000/api/docs (permite probar los servicios desde el navegador).
 
 ## Endpoints
 
-| Método | Ruta | Descripción |
+| Método | Ruta | Acceso |
 |---|---|---|
-| POST | `/api/registro` | Registra un usuario |
-| POST | `/api/login` | Inicia sesión |
-| GET | `/api/salud` | Comprueba que el servicio está activo |
+| POST | `/api/registro` | Público |
+| POST | `/api/login` | Público |
+| GET | `/api/perfil` | Token |
+| GET | `/api/productos` | Público |
+| GET | `/api/productos/{id}` | Público |
+| POST | `/api/productos` | Admin |
+| PUT | `/api/productos/{id}` | Admin |
+| DELETE | `/api/productos/{id}` | Admin |
+| POST | `/api/pedidos` | Token |
+| GET | `/api/pedidos` | Token (cliente: los suyos; admin: todos) |
+| GET | `/api/pedidos/{id}` | Token (dueño o admin) |
+| PATCH | `/api/pedidos/{id}/cancelar` | Token (dueño o admin) |
+| PATCH | `/api/pedidos/{id}/estado` | Admin |
+| GET | `/api/salud` | Público |
 
 ## Cómo ejecutarlo
 
 Requiere Node.js 18 o superior.
 
 ```bash
-npm install     # instala Express, bcryptjs y las herramientas de desarrollo
-npm start       # inicia el servicio en http://localhost:3000
+npm install                                  # instala las dependencias
+npm run crear-admin -- admin Admin1234       # crea el usuario administrador (una vez)
+npm start                                    # inicia en http://localhost:3000
 ```
 
-Variables opcionales: `PORT` (puerto) y `DATA_FILE` (ruta del archivo JSON).
+Variables opcionales: `PORT` (puerto), `DATA_DIR` (carpeta de los datos) y
+`JWT_SECRET` (clave de los tokens; **obligatoria** con `NODE_ENV=production`).
+Cambie la contraseña de ejemplo del administrador.
 
-## Probarlo con curl o Postman
-
-Registro:
+## Ejemplo de uso
 
 ```bash
-curl -X POST http://localhost:3000/api/registro \
-  -H "Content-Type: application/json" \
-  -d '{"usuario":"elkin.g","contrasena":"Clave1234"}'
+# 1. Iniciar sesión como admin y guardar el token
+curl -X POST http://localhost:3000/api/login -H "Content-Type: application/json" \
+  -d '{"usuario":"admin","contrasena":"Admin1234"}'
+
+# 2. Crear un producto (reemplace TOKEN por el token recibido)
+curl -X POST http://localhost:3000/api/productos \
+  -H "Content-Type: application/json" -H "Authorization: Bearer TOKEN" \
+  -d '{"nombre":"Mouse inalámbrico","descripcion":"Mouse óptico USB 2.4GHz","precio":35000,"stock":20}'
+
+# 3. Consultar el catálogo (público)
+curl "http://localhost:3000/api/productos?buscar=mouse"
 ```
 
-Respuesta (201):
-
-```json
-{"exito":true,"mensaje":"Usuario registrado correctamente","usuario":{"id":1,"usuario":"elkin.g"}}
-```
-
-Inicio de sesión correcto:
-
-```bash
-curl -X POST http://localhost:3000/api/login \
-  -H "Content-Type: application/json" \
-  -d '{"usuario":"elkin.g","contrasena":"Clave1234"}'
-```
-
-Respuesta (200):
-
-```json
-{"exito":true,"mensaje":"Autenticación satisfactoria"}
-```
-
-Inicio de sesión con contraseña incorrecta, respuesta (401):
-
-```json
-{"exito":false,"mensaje":"Error en la autenticación"}
-```
-
-En Postman: método `POST`, URL `http://localhost:3000/api/login`, pestaña
-Body → raw → JSON, y pegar el cuerpo de ejemplo.
-
-## Pruebas con Postman
-
-En la carpeta `postman/` hay una colección lista para importar con 15
-peticiones y sus pruebas automáticas:
-
-1. Iniciar el servicio con `npm start`.
-2. En Postman: **Import** y elegir `TechShop_API.postman_collection.json` y
-   `TechShop_Local.postman_environment.json`.
-3. Seleccionar el entorno **TechShop - Local** (arriba a la derecha).
-4. Ejecutar la colección completa con **Run collection** (en orden).
+En Postman: pestaña Authorization → tipo **Bearer Token** → pegar el token.
+La carpeta `postman/` trae una colección de pruebas del registro y el login
+(evidencia AA5-EV02) que sigue funcionando con esta versión.
 
 ## Pruebas y calidad de código
 
 ```bash
-npm test        # 20 pruebas automatizadas de la API (node:test)
+npm test        # 105 pruebas automatizadas (node:test)
 npm run lint    # estándar de codificación Airbnb (ESLint)
 ```
+
+Las pruebas cubren autenticación, seguridad del token y de los roles,
+productos, pedidos (stock, totales, permisos y estados) y la documentación:
+la especificación OpenAPI debe ser válida y **cada servicio documentado debe
+existir de verdad** en la API.
 
 ## Estructura
 
 ```
 src/
-├── server.js                         -> arranque del servidor
-├── app.js                            -> rutas y manejo de errores
-├── controllers/auth.controller.js    -> peticiones y respuestas HTTP
-├── services/auth.service.js          -> reglas de negocio y bcrypt
-├── repositories/usuario.repository.js-> lectura y escritura del JSON
-└── utils/                            -> validaciones y errores
-tests/auth.test.js                    -> pruebas de la API
-docs/DISENO_API.md                    -> documento de diseño
-data/                                 -> aquí se crea usuarios.json
+├── server.js                 -> arranque
+├── app.js                    -> configuración, documentación y manejo de errores
+├── routes/                   -> URLs de cada grupo de servicios
+├── middlewares/              -> autenticación (token) y roles
+├── controllers/              -> peticiones y respuestas HTTP
+├── services/                 -> reglas de negocio
+├── repositories/             -> acceso a los archivos JSON
+└── utils/                    -> validaciones, errores y tokens
+scripts/crear-admin.js        -> crea el usuario administrador
+tests/                        -> pruebas automatizadas
+docs/                         -> documentación y diseño
+postman/                      -> colección de Postman (AA5-EV02)
+data/                         -> aquí se crean los archivos JSON de datos
 ```
-
-## Seguridad aplicada
-
-- Las contraseñas se guardan con hash bcrypt, nunca en texto plano.
-- Usuario inexistente y contraseña incorrecta devuelven el mismo error.
-- Las respuestas nunca incluyen el hash ni la contraseña.
-- Límite de 10 KB en el cuerpo de las peticiones.
-- Los errores inesperados no revelan detalles internos al cliente.
 
 ## Control de versiones
 
