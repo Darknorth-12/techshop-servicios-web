@@ -1,22 +1,27 @@
 {
   "name": "techshop-servicio-auth",
   "version": "1.0.0",
-  "description": "TechShop - Servicio web REST de registro e inicio de sesion (Node.js + Express) - GA7-220501096-AA5-EV01",
+  "description": "TechShop - Servicios web REST (autenticacion, productos y pedidos) con Node.js y Express - GA7-220501096-AA5-EV03",
   "main": "src/server.js",
   "private": true,
   "scripts": {
     "start": "node src/server.js",
     "test": "node --test",
-    "lint": "eslint src tests"
+    "lint": "eslint src tests scripts",
+    "crear-admin": "node scripts/crear-admin.js"
   },
   "engines": {
     "node": ">=18"
   },
   "dependencies": {
     "bcryptjs": "^2.4.3",
-    "express": "^4.19.2"
+    "express": "^4.19.2",
+    "jsonwebtoken": "^9.0.3",
+    "swagger-ui-express": "^5.0.1",
+    "yaml": "^2.9.1"
   },
   "devDependencies": {
+    "@apidevtools/swagger-parser": "^13.1.0",
     "eslint": "^8.57.0",
     "eslint-config-airbnb-base": "^15.0.0",
     "eslint-plugin-import": "^2.29.1"
