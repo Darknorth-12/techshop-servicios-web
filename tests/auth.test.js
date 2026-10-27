@@ -12,39 +12,23 @@ const {
 } = require('node:test');
 const assert = require('node:assert');
 const fs = require('fs');
-const os = require('os');
 const path = require('path');
-const { crearApp } = require('../src/app');
-const { crearRepositorio } = require('../src/repositories/usuario.repository');
-
-// Costo bajo de bcrypt para que las pruebas corran rápido
-const RONDAS_PRUEBA = 4;
+const { crearCarpetaTemporal, iniciarServidor, crearCliente } = require('./ayudas');
 
 let servidor;
 let baseUrl;
-let archivoDatos;
-
-/** Levanta una instancia de la API sobre el archivo de datos indicado. */
-const iniciarServidor = (archivo) => new Promise((resolve) => {
-  const app = crearApp(crearRepositorio(archivo), RONDAS_PRUEBA);
-  const instancia = app.listen(0, () => resolve(instancia));
-});
+let carpeta;
+let api;
 
 /** Envía un POST con cuerpo JSON y devuelve estado y cuerpo de la respuesta. */
-const enviar = async (ruta, cuerpo) => {
-  const respuesta = await fetch(`${baseUrl}${ruta}`, {
-    method: 'POST',
-    headers: { 'Content-Type': 'application/json' },
-    body: typeof cuerpo === 'string' ? cuerpo : JSON.stringify(cuerpo),
-  });
-  return { estado: respuesta.status, cuerpo: await respuesta.json() };
-};
+const enviar = (ruta, cuerpo) => api('POST', ruta, cuerpo);
 
 describe('API de autenticación TechShop', () => {
   before(async () => {
-    archivoDatos = path.join(fs.mkdtempSync(path.join(os.tmpdir(), 'techshop-')), 'usuarios.json');
-    servidor = await iniciarServidor(archivoDatos);
+    carpeta = crearCarpetaTemporal();
+    servidor = await iniciarServidor(carpeta);
     baseUrl = `http://localhost:${servidor.address().port}`;
+    api = crearCliente(baseUrl);
   });
 
   after(() => {
@@ -111,7 +95,7 @@ describe('API de autenticación TechShop', () => {
     });
 
     it('A-10 la contraseña se guarda cifrada (bcrypt), nunca en texto plano', () => {
-      const contenido = fs.readFileSync(archivoDatos, 'utf8');
+      const contenido = fs.readFileSync(path.join(carpeta, 'usuarios.json'), 'utf8');
       assert.ok(!contenido.includes('Clave1234'));
       assert.ok(contenido.includes('$2'));
     });
@@ -175,7 +159,7 @@ describe('API de autenticación TechShop', () => {
     });
 
     it('A-20 los usuarios persisten: un servidor nuevo sobre el mismo archivo los reconoce', async () => {
-      const segundo = await iniciarServidor(archivoDatos);
+      const segundo = await iniciarServidor(carpeta);
       const url = `http://localhost:${segundo.address().port}/api/login`;
       const respuesta = await fetch(url, {
         method: 'POST',
