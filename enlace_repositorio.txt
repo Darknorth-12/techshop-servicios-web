@@ -1,20 +1,5 @@
 Enlace del repositorio - GA7-220501096-AA5-EV03
 =================================================
 
-El proyecto ya tiene Git inicializado con su historial de commits
-(incluye los commits de AA5-EV01 y AA5-EV02, de los que parte este proyecto).
 
-Para completar este archivo:
-
-1. Cree un repositorio vacio en GitHub, por ejemplo:
-   https://github.com/SU_USUARIO/techshop-servicios-web
-   (si ya creo uno para AA5-EV01 o AA5-EV02, puede usar el mismo)
-
-2. Desde esta carpeta, conecte el remoto y suba los commits:
-   git remote add origin https://github.com/SU_USUARIO/techshop-servicios-web.git
-   git branch -M main
-   git push -u origin main
-
-3. Reemplace la siguiente linea con la URL real de su repositorio:
-
-URL DEL REPOSITORIO: (pegue aqui su enlace de GitHub)
+URL DEL REPOSITORIO: https://github.com/Darknorth-12/techshop-servicios-web
